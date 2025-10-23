@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import threading
+from datetime import datetime
 
 # Read webhook URL from file
 try:
@@ -100,7 +101,7 @@ def send_discord_alert(product_name, url, in_stock, image_url):
             "title": "🎉 PRODUCT IN STOCK! 🎉",
             "description": f"**{product_name}** is now available!",
             "url": url,
-            "color": 65280,  # Green color
+            "color": 65280,
             "fields": [
                 {
                     "name": "Product",
@@ -116,14 +117,14 @@ def send_discord_alert(product_name, url, in_stock, image_url):
             "footer": {
                 "text": "Rahmis Cooked Bot"
             },
-            "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
+            "timestamp": datetime.utcnow().isoformat()
         }
     else:
         embed = {
             "title": "❌ Product Out of Stock",
             "description": f"**{product_name}** is currently unavailable.",
             "url": url,
-            "color": 16711680,  # Red color
+            "color": 16711680,
             "fields": [
                 {
                     "name": "Product",
@@ -139,10 +140,9 @@ def send_discord_alert(product_name, url, in_stock, image_url):
             "footer": {
                 "text": "Rahmis Cooked Bot"
             },
-            "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
+            "timestamp": datetime.utcnow().isoformat()
         }
     
-    # Add image if found
     if image_url:
         embed["thumbnail"] = {"url": image_url}
     
@@ -161,7 +161,7 @@ def test_webhook():
             "footer": {
                 "text": "Rahmis Cooked Bot"
             },
-            "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
+            "timestamp": datetime.utcnow().isoformat()
         }]
     }
     
@@ -207,7 +207,6 @@ def automatic_monitor():
     global last_status
     print(f"🔍 Starting automatic monitoring for {len(URLS)} product(s) (checks every hour)...\n")
     
-    # Initialize last_status for all URLs
     for url in URLS:
         if url not in last_status:
             last_status[url] = None
@@ -278,11 +277,9 @@ def command_listener():
             print(f"❌ Error: {e}")
 
 def main():
-    # Start automatic monitoring in a separate thread
     monitor_thread = threading.Thread(target=automatic_monitor, daemon=True)
     monitor_thread.start()
     
-    # Start command listener in main thread
     command_listener()
 
 if __name__ == "__main__":
