@@ -179,21 +179,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
-
-**Changes made:**
-
-1. **Reads from `urls.txt`** - Each line in the file is a URL to monitor
-2. **Monitors multiple products** - Loops through all URLs and checks each one
-3. **Individual tracking** - Each URL has its own `last_status` entry
-4. **Better product names** - Extracts readable names from URLs (e.g., "Pokemon Tcg 151 Sv2a Booster Box Japanese")
-5. **New command: `list`** - Shows all monitored URLs
-6. **Updated status display** - Shows status for all products
-
-**How to use:**
-
-Create `urls.txt` with one URL per line:
-```
-https://mastercoins.com.au/product/pokemon-tcg-151-sv2a-booster-box-japanese/
-https://mastercoins.com.au/product/another-product/
-https://mastercoins.com.au/product/third-product/
