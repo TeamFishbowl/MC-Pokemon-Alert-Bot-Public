@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Read webhook URL from file
 try:
@@ -117,7 +117,7 @@ def send_discord_alert(product_name, url, in_stock, image_url):
             "footer": {
                 "text": "Rahmis Cooked Bot"
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     else:
         embed = {
@@ -140,7 +140,7 @@ def send_discord_alert(product_name, url, in_stock, image_url):
             "footer": {
                 "text": "Rahmis Cooked Bot"
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     
     if image_url:
@@ -161,7 +161,7 @@ def test_webhook():
             "footer": {
                 "text": "Rahmis Cooked Bot"
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }]
     }
     
