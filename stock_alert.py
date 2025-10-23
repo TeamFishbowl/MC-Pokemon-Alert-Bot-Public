@@ -147,7 +147,38 @@ def send_discord_alert(product_name, url, in_stock, image_url):
         embed["thumbnail"] = {"url": image_url}
     
     payload = {"embeds": [embed]}
-    requests.post(WEBHOOK_URL, json=payload)
+    response = requests.post(WEBHOOK_URL, json=payload)
+    return response
+
+def test_webhook():
+    """Test if the webhook is working."""
+    print("\n🧪 Testing webhook...")
+    payload = {
+        "embeds": [{
+            "title": "✅ Webhook Test",
+            "description": "If you see this message, your webhook is working correctly!",
+            "color": 3447003,
+            "footer": {
+                "text": "Rahmis Cooked Bot"
+            },
+            "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
+        }]
+    }
+    
+    try:
+        response = requests.post(WEBHOOK_URL, json=payload)
+        print(f"Status code: {response.status_code}")
+        
+        if response.status_code == 204:
+            print("✅ Webhook test successful! Check your Discord channel.")
+        elif response.status_code == 404:
+            print("❌ Webhook not found. The URL might be invalid or deleted.")
+        elif response.status_code == 401:
+            print("❌ Unauthorized. Check your webhook URL.")
+        else:
+            print(f"⚠️ Unexpected response: {response.text}")
+    except Exception as e:
+        print(f"❌ Error sending test message: {e}")
 
 def manual_check():
     """Perform a manual stock check for all URLs."""
@@ -159,10 +190,12 @@ def manual_check():
             
             if in_stock is True:
                 print(f"✅ {product_name}: IN STOCK")
-                send_discord_alert(product_name, url, True, image_url)
+                response = send_discord_alert(product_name, url, True, image_url)
+                print(f"   Discord response: {response.status_code}")
             elif in_stock is False:
                 print(f"❌ {product_name}: OUT OF STOCK")
-                send_discord_alert(product_name, url, False, image_url)
+                response = send_discord_alert(product_name, url, False, image_url)
+                print(f"   Discord response: {response.status_code}")
             else:
                 print(f"❓ {product_name}: UNKNOWN")
                 
@@ -205,6 +238,7 @@ def command_listener():
     """Listen for user commands."""
     print("💬 Command listener active. Available commands:")
     print("   - check_stock : Manually check stock now")
+    print("   - test_webhook : Test if Discord webhook is working")
     print("   - status      : Show last known status for all products")
     print("   - list        : Show all monitored URLs")
     print("   - quit        : Exit program\n")
@@ -215,6 +249,8 @@ def command_listener():
             
             if command == "check_stock":
                 manual_check()
+            elif command == "test_webhook":
+                test_webhook()
             elif command == "status":
                 print("\n📊 Current status for all products:")
                 for url in URLS:
