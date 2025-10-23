@@ -3,9 +3,6 @@ from bs4 import BeautifulSoup
 import time
 import threading
 
-# URL of the product
-URL = "https://mastercoins.com.au/product/pokemon-tcg-151-sv2a-booster-box-japanese/"
-
 # Read webhook URL from file
 try:
     with open("webhook.txt", "r") as f:
@@ -15,23 +12,42 @@ except FileNotFoundError:
     input("Press Enter to exit...")
     exit()
 
+# Read URLs from file
+try:
+    with open("urls.txt", "r") as f:
+        URLS = [line.strip() for line in f.readlines() if line.strip()]
+    if not URLS:
+        print("Error: urls.txt is empty!")
+        input("Press Enter to exit...")
+        exit()
+except FileNotFoundError:
+    print("Error: urls.txt file not found!")
+    input("Press Enter to exit...")
+    exit()
+
 # How often to check (in seconds)
 CHECK_INTERVAL = 3600  # 1 hour
 
-# Global variable to track last status
-last_status = None
+# Global variable to track last status for each URL
+last_status = {}
 
-def get_stock_status():
+def get_product_name(url):
+    """Extract a readable product name from the URL."""
+    # Gets the last part of the URL path and makes it readable
+    product_slug = url.rstrip('/').split('/')[-1]
+    return product_slug.replace('-', ' ').title()
+
+def get_stock_status(url):
     """Check if the product is in stock by scraping the page."""
     headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(URL, headers=headers, timeout=10)
+    response = requests.get(url, headers=headers, timeout=10)
     soup = BeautifulSoup(response.text, "html.parser")
     
     # Find the main product summary section ONLY
     product_summary = soup.find('div', class_='product-summary')
     
     if not product_summary:
-        print("⚠️ Warning: Could not find product summary section")
+        print(f"⚠️ Warning: Could not find product summary section for {url}")
         return None
     
     # Now search ONLY within the product summary section
@@ -65,42 +81,51 @@ def send_discord_alert(message):
     requests.post(WEBHOOK_URL, json=payload)
 
 def manual_check():
-    """Perform a manual stock check."""
-    try:
-        print("\n🔍 Running manual check...")
-        in_stock = get_stock_status()
-        
-        if in_stock is True:
-            print("✅ Product is IN STOCK!")
-        elif in_stock is False:
-            print("❌ Product is OUT OF STOCK")
-        else:
-            print("❓ Could not determine stock status")
+    """Perform a manual stock check for all URLs."""
+    print("\n🔍 Running manual check for all products...")
+    for url in URLS:
+        try:
+            product_name = get_product_name(url)
+            in_stock = get_stock_status(url)
             
-    except Exception as e:
-        print(f"❌ Error during manual check: {e}")
+            if in_stock is True:
+                print(f"✅ {product_name}: IN STOCK")
+            elif in_stock is False:
+                print(f"❌ {product_name}: OUT OF STOCK")
+            else:
+                print(f"❓ {product_name}: UNKNOWN")
+                
+        except Exception as e:
+            print(f"❌ Error checking {url}: {e}")
 
 def automatic_monitor():
     """Automatic monitoring loop that runs every hour."""
     global last_status
-    print("🔍 Starting automatic monitoring (checks every hour)...\n")
+    print(f"🔍 Starting automatic monitoring for {len(URLS)} product(s) (checks every hour)...\n")
+    
+    # Initialize last_status for all URLs
+    for url in URLS:
+        if url not in last_status:
+            last_status[url] = None
     
     while True:
-        try:
-            in_stock = get_stock_status()
-            
-            if in_stock is True and last_status != True:
-                send_discord_alert("🎉 The Pokémon 151 Booster Box is **IN STOCK**! Go now: " + URL)
-                print("✅ Sent IN STOCK alert to Discord!")
-            elif in_stock is False and last_status != False:
-                print("📦 Still out of stock.")
-            elif in_stock is None:
-                print("❓ Couldn't determine stock status.")
-            
-            last_status = in_stock
-            
-        except Exception as e:
-            print(f"❌ Error checking stock: {e}")
+        for url in URLS:
+            try:
+                product_name = get_product_name(url)
+                in_stock = get_stock_status(url)
+                
+                if in_stock is True and last_status[url] != True:
+                    send_discord_alert(f"🎉 **{product_name}** is IN STOCK! Go now: {url}")
+                    print(f"✅ Sent IN STOCK alert for {product_name}!")
+                elif in_stock is False and last_status[url] != False:
+                    print(f"📦 {product_name}: Still out of stock.")
+                elif in_stock is None:
+                    print(f"❓ {product_name}: Couldn't determine stock status.")
+                
+                last_status[url] = in_stock
+                
+            except Exception as e:
+                print(f"❌ Error checking {url}: {e}")
         
         time.sleep(CHECK_INTERVAL)
 
@@ -108,7 +133,8 @@ def command_listener():
     """Listen for user commands."""
     print("💬 Command listener active. Available commands:")
     print("   - check_stock : Manually check stock now")
-    print("   - status      : Show last known status")
+    print("   - status      : Show last known status for all products")
+    print("   - list        : Show all monitored URLs")
     print("   - quit        : Exit program\n")
     
     while True:
@@ -118,12 +144,22 @@ def command_listener():
             if command == "check_stock":
                 manual_check()
             elif command == "status":
-                if last_status is True:
-                    print("📊 Last status: IN STOCK")
-                elif last_status is False:
-                    print("📊 Last status: OUT OF STOCK")
-                else:
-                    print("📊 Last status: UNKNOWN")
+                print("\n📊 Current status for all products:")
+                for url in URLS:
+                    product_name = get_product_name(url)
+                    status = last_status.get(url, None)
+                    if status is True:
+                        print(f"   ✅ {product_name}: IN STOCK")
+                    elif status is False:
+                        print(f"   ❌ {product_name}: OUT OF STOCK")
+                    else:
+                        print(f"   ❓ {product_name}: UNKNOWN")
+            elif command == "list":
+                print(f"\n📋 Monitoring {len(URLS)} product(s):")
+                for i, url in enumerate(URLS, 1):
+                    product_name = get_product_name(url)
+                    print(f"   {i}. {product_name}")
+                    print(f"      {url}")
             elif command == "quit" or command == "exit":
                 print("👋 Exiting program...")
                 exit()
@@ -143,3 +179,21 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+
+**Changes made:**
+
+1. **Reads from `urls.txt`** - Each line in the file is a URL to monitor
+2. **Monitors multiple products** - Loops through all URLs and checks each one
+3. **Individual tracking** - Each URL has its own `last_status` entry
+4. **Better product names** - Extracts readable names from URLs (e.g., "Pokemon Tcg 151 Sv2a Booster Box Japanese")
+5. **New command: `list`** - Shows all monitored URLs
+6. **Updated status display** - Shows status for all products
+
+**How to use:**
+
+Create `urls.txt` with one URL per line:
+```
+https://mastercoins.com.au/product/pokemon-tcg-151-sv2a-booster-box-japanese/
+https://mastercoins.com.au/product/another-product/
+https://mastercoins.com.au/product/third-product/
