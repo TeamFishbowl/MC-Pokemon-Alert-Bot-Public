@@ -36,6 +36,22 @@ def get_product_name(url):
     product_slug = url.rstrip('/').split('/')[-1]
     return product_slug.replace('-', ' ').title()
 
+def get_product_image(soup):
+    """Extract the product image URL from the page."""
+    # Try to find the main product image
+    img = soup.find('img', class_='wp-post-image')
+    if img and img.get('src'):
+        return img.get('src')
+    
+    # Fallback: try to find any product image
+    product_images = soup.find('div', class_='product-images')
+    if product_images:
+        img = product_images.find('img')
+        if img and img.get('src'):
+            return img.get('src')
+    
+    return None
+
 def get_stock_status(url):
     """Check if the product is in stock by scraping the page."""
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -47,34 +63,37 @@ def get_stock_status(url):
     
     if not product_summary:
         print(f"⚠️ Warning: Could not find product summary section for {url}")
-        return None
+        return None, None
+    
+    # Get product image
+    image_url = get_product_image(soup)
     
     # Now search ONLY within the product summary section
     
     # Look for "Email when stock available" button - indicates out of stock
     email_button = product_summary.find('button', class_='woocommerce-email-subscription')
     if email_button:
-        return False
+        return False, image_url
     
     # Look for "Out of stock" text
     out_of_stock_text = product_summary.find(string=lambda text: text and "out of stock" in text.lower())
     if out_of_stock_text:
-        return False
+        return False, image_url
     
     # Look for "Add to cart" or "Buy now" buttons - indicates in stock
     add_to_cart = product_summary.find('button', class_='single_add_to_cart_button')
     if add_to_cart and add_to_cart.get_text().strip().lower() in ['add to cart', 'buy now']:
-        return True
+        return True, image_url
     
     # Check for "in stock" text
     in_stock_text = product_summary.find(string=lambda text: text and "in stock" in text.lower())
     if in_stock_text:
-        return True
+        return True, image_url
     
     # If we can't determine, return None
-    return None
+    return None, image_url
 
-def send_discord_alert(product_name, url, in_stock):
+def send_discord_alert(product_name, url, in_stock, image_url):
     """Send a message to Discord via webhook with embed."""
     if in_stock:
         embed = {
@@ -123,6 +142,10 @@ def send_discord_alert(product_name, url, in_stock):
             "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
         }
     
+    # Add image if found
+    if image_url:
+        embed["thumbnail"] = {"url": image_url}
+    
     payload = {"embeds": [embed]}
     requests.post(WEBHOOK_URL, json=payload)
 
@@ -132,7 +155,7 @@ def manual_check():
     for url in URLS:
         try:
             product_name = get_product_name(url)
-            in_stock = get_stock_status(url)
+            in_stock, image_url = get_stock_status(url)
             
             if in_stock is True:
                 print(f"✅ {product_name}: IN STOCK")
@@ -158,13 +181,13 @@ def automatic_monitor():
         for url in URLS:
             try:
                 product_name = get_product_name(url)
-                in_stock = get_stock_status(url)
+                in_stock, image_url = get_stock_status(url)
                 
                 if in_stock is True and last_status[url] != True:
-                    send_discord_alert(product_name, url, True)
+                    send_discord_alert(product_name, url, True, image_url)
                     print(f"✅ Sent IN STOCK alert for {product_name}!")
                 elif in_stock is False and last_status[url] != False:
-                    send_discord_alert(product_name, url, False)
+                    send_discord_alert(product_name, url, False, image_url)
                     print(f"📦 Sent OUT OF STOCK alert for {product_name}.")
                 elif in_stock is None:
                     print(f"❓ {product_name}: Couldn't determine stock status.")
