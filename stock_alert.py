@@ -28,6 +28,7 @@ except FileNotFoundError:
 
 # How often to check (in seconds)
 CHECK_INTERVAL = 3600  # 1 hour
+DISCORD_RATE_LIMIT_DELAY = 0.5  # Delay between Discord messages to avoid rate limiting
 
 # Global variable to track last status for each URL
 last_status = {}
@@ -96,6 +97,8 @@ def get_stock_status(url):
 
 def send_discord_alert(product_name, url, in_stock, image_url):
     """Send a message to Discord via webhook with embed."""
+    print(f"📤 Sending Discord alert for {product_name}...")
+    
     if in_stock:
         embed = {
             "title": "🎉 PRODUCT IN STOCK! 🎉",
@@ -183,24 +186,36 @@ def test_webhook():
 def manual_check():
     """Perform a manual stock check for all URLs."""
     print("\n🔍 Running manual check for all products...")
-    for url in URLS:
+    for i, url in enumerate(URLS, 1):
         try:
             product_name = get_product_name(url)
+            print(f"\n[{i}/{len(URLS)}] 🌐 Scraping {product_name}...")
+            
             in_stock, image_url = get_stock_status(url)
             
+            print(f"[{i}/{len(URLS)}] ✓ Finished scraping {product_name}")
+            
             if in_stock is True:
-                print(f"✅ {product_name}: IN STOCK")
+                print(f"[{i}/{len(URLS)}] ✅ {product_name}: IN STOCK")
                 response = send_discord_alert(product_name, url, True, image_url)
-                print(f"   Discord response: {response.status_code}")
+                print(f"[{i}/{len(URLS)}] 📨 Discord response: {response.status_code}")
+                if i < len(URLS):
+                    print(f"⏳ Waiting {DISCORD_RATE_LIMIT_DELAY}s before next alert...")
+                    time.sleep(DISCORD_RATE_LIMIT_DELAY)
             elif in_stock is False:
-                print(f"❌ {product_name}: OUT OF STOCK")
+                print(f"[{i}/{len(URLS)}] ❌ {product_name}: OUT OF STOCK")
                 response = send_discord_alert(product_name, url, False, image_url)
-                print(f"   Discord response: {response.status_code}")
+                print(f"[{i}/{len(URLS)}] 📨 Discord response: {response.status_code}")
+                if i < len(URLS):
+                    print(f"⏳ Waiting {DISCORD_RATE_LIMIT_DELAY}s before next alert...")
+                    time.sleep(DISCORD_RATE_LIMIT_DELAY)
             else:
-                print(f"❓ {product_name}: UNKNOWN")
+                print(f"[{i}/{len(URLS)}] ❓ {product_name}: UNKNOWN")
                 
         except Exception as e:
-            print(f"❌ Error checking {url}: {e}")
+            print(f"[{i}/{len(URLS)}] ❌ Error checking {url}: {e}")
+    
+    print("\n✅ Manual check complete!")
 
 def automatic_monitor():
     """Automatic monitoring loop that runs every hour."""
@@ -212,25 +227,36 @@ def automatic_monitor():
             last_status[url] = None
     
     while True:
-        for url in URLS:
+        print(f"\n⏰ Starting automatic check at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        for i, url in enumerate(URLS, 1):
             try:
                 product_name = get_product_name(url)
+                print(f"\n[{i}/{len(URLS)}] 🌐 Checking {product_name}...")
+                
                 in_stock, image_url = get_stock_status(url)
+                
+                print(f"[{i}/{len(URLS)}] ✓ Finished checking {product_name}")
                 
                 if in_stock is True and last_status[url] != True:
                     send_discord_alert(product_name, url, True, image_url)
-                    print(f"✅ Sent IN STOCK alert for {product_name}!")
+                    print(f"[{i}/{len(URLS)}] ✅ Sent IN STOCK alert for {product_name}!")
+                    time.sleep(DISCORD_RATE_LIMIT_DELAY)
                 elif in_stock is False and last_status[url] != False:
                     send_discord_alert(product_name, url, False, image_url)
-                    print(f"📦 Sent OUT OF STOCK alert for {product_name}.")
+                    print(f"[{i}/{len(URLS)}] 📦 Sent OUT OF STOCK alert for {product_name}.")
+                    time.sleep(DISCORD_RATE_LIMIT_DELAY)
                 elif in_stock is None:
-                    print(f"❓ {product_name}: Couldn't determine stock status.")
+                    print(f"[{i}/{len(URLS)}] ❓ {product_name}: Couldn't determine stock status.")
+                else:
+                    print(f"[{i}/{len(URLS)}] 🔄 {product_name}: No status change")
                 
                 last_status[url] = in_stock
                 
             except Exception as e:
-                print(f"❌ Error checking {url}: {e}")
+                print(f"[{i}/{len(URLS)}] ❌ Error checking {url}: {e}")
         
+        print(f"\n💤 Sleeping for {CHECK_INTERVAL}s until next check...")
         time.sleep(CHECK_INTERVAL)
 
 def command_listener():
