@@ -159,8 +159,10 @@ def manual_check():
             
             if in_stock is True:
                 print(f"✅ {product_name}: IN STOCK")
+                send_discord_alert(product_name, url, True, image_url)
             elif in_stock is False:
                 print(f"❌ {product_name}: OUT OF STOCK")
+                send_discord_alert(product_name, url, False, image_url)
             else:
                 print(f"❓ {product_name}: UNKNOWN")
                 
