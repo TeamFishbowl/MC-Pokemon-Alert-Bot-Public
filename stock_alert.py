@@ -43,33 +43,40 @@ def get_product_image(soup):
     print("   🔍 Searching for product image...")
     
     try:
-        # Method 1: Look for wp-post-image class (standard WooCommerce)
+        # Method 1: Look for data-large_image attribute (WooCommerce standard for full-size image)
         img = soup.find('img', class_='wp-post-image')
-        if img and img.get('src'):
-            img_url = img.get('src')
-            print(f"   ✓ Found image with wp-post-image class: {img_url}")
+        if img and img.get('data-large_image'):
+            img_url = img.get('data-large_image')
+            print(f"   ✓ Found image in data-large_image: {img_url}")
             if img_url.startswith('http'):
                 return img_url
         
-        # Method 2: Look inside product-images container
-        product_images = soup.find('div', class_='product-images')
-        if product_images:
-            img = product_images.find('img')
-            if img and img.get('src'):
-                img_url = img.get('src')
-                print(f"   ✓ Found image in product-images div: {img_url}")
-                if img_url.startswith('http'):
+        # Method 2: Look for data-src (lazy loading)
+        if img and img.get('data-src'):
+            img_url = img.get('data-src')
+            if img_url.startswith('http') and not img_url.startswith('data:'):
+                print(f"   ✓ Found image in data-src: {img_url}")
+                return img_url
+        
+        # Method 3: Look in gallery wrapper
+        gallery = soup.find('div', class_='woocommerce-product-gallery__wrapper')
+        if gallery:
+            link = gallery.find('a')
+            if link and link.get('href'):
+                img_url = link.get('href')
+                if img_url.startswith('http') and any(ext in img_url for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                    print(f"   ✓ Found image in gallery link: {img_url}")
                     return img_url
         
-        # Method 3: Look for woocommerce-product-gallery__image
-        gallery = soup.find('div', class_='woocommerce-product-gallery__image')
-        if gallery:
-            img = gallery.find('img')
-            if img and img.get('src'):
-                img_url = img.get('src')
-                print(f"   ✓ Found image in gallery: {img_url}")
-                if img_url.startswith('http'):
-                    return img_url
+        # Method 4: Look for any img with mastercoins.com.au domain
+        all_imgs = soup.find_all('img')
+        for img in all_imgs:
+            for attr in ['src', 'data-src', 'data-large_image']:
+                if img.get(attr):
+                    img_url = img.get(attr)
+                    if 'mastercoins.com.au/wp-content/uploads' in img_url and any(ext in img_url for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                        print(f"   ✓ Found image in {attr}: {img_url}")
+                        return img_url
         
         print("   ⚠️ No valid product image found")
     except Exception as e:
