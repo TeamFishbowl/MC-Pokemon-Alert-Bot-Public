@@ -27,23 +27,32 @@ def get_stock_status():
     response = requests.get(URL, headers=headers, timeout=10)
     soup = BeautifulSoup(response.text, "html.parser")
     
+    # Find the main product summary section ONLY
+    product_summary = soup.find('div', class_='product-summary')
+    
+    if not product_summary:
+        print("⚠️ Warning: Could not find product summary section")
+        return None
+    
+    # Now search ONLY within the product summary section
+    
     # Look for "Email when stock available" button - indicates out of stock
-    email_button = soup.find('button', class_='woocommerce-email-subscription')
+    email_button = product_summary.find('button', class_='woocommerce-email-subscription')
     if email_button:
         return False
     
     # Look for "Out of stock" text
-    out_of_stock_text = soup.find(string=lambda text: text and "out of stock" in text.lower())
+    out_of_stock_text = product_summary.find(string=lambda text: text and "out of stock" in text.lower())
     if out_of_stock_text:
         return False
     
     # Look for "Add to cart" or "Buy now" buttons - indicates in stock
-    add_to_cart = soup.find('button', class_='single_add_to_cart_button')
+    add_to_cart = product_summary.find('button', class_='single_add_to_cart_button')
     if add_to_cart and add_to_cart.get_text().strip().lower() in ['add to cart', 'buy now']:
         return True
     
     # Check for "in stock" text
-    in_stock_text = soup.find(string=lambda text: text and "in stock" in text.lower())
+    in_stock_text = product_summary.find(string=lambda text: text and "in stock" in text.lower())
     if in_stock_text:
         return True
     
