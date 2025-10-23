@@ -84,7 +84,6 @@ def send_discord_alert(product_name, url, in_stock):
         embed = {
             "title": "🎉 PRODUCT IN STOCK! 🎉",
             "description": f"**{product_name}** is now available!",
-            "url": url,
             "color": 65280,
             "fields": [
                 {
@@ -107,7 +106,6 @@ def send_discord_alert(product_name, url, in_stock):
         embed = {
             "title": "❌ Product Out of Stock",
             "description": f"**{product_name}** is currently unavailable.",
-            "url": url,
             "color": 16711680,
             "fields": [
                 {
