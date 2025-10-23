@@ -114,7 +114,7 @@ def send_discord_alert(product_name, url, in_stock, image_url):
                 }
             ],
             "footer": {
-                "text": "Stock Alert Bot"
+                "text": "Rahmis Cooked Bot"
             },
             "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
         }
@@ -137,7 +137,7 @@ def send_discord_alert(product_name, url, in_stock, image_url):
                 }
             ],
             "footer": {
-                "text": "Stock Alert Bot"
+                "text": "Rahmis Cooked Bot"
             },
             "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
         }
