@@ -33,7 +33,6 @@ last_status = {}
 
 def get_product_name(url):
     """Extract a readable product name from the URL."""
-    # Gets the last part of the URL path and makes it readable
     product_slug = url.rstrip('/').split('/')[-1]
     return product_slug.replace('-', ' ').title()
 
@@ -75,9 +74,56 @@ def get_stock_status(url):
     # If we can't determine, return None
     return None
 
-def send_discord_alert(message):
-    """Send a message to Discord via webhook."""
-    payload = {"content": message}
+def send_discord_alert(product_name, url, in_stock):
+    """Send a message to Discord via webhook with embed."""
+    if in_stock:
+        embed = {
+            "title": "🎉 PRODUCT IN STOCK! 🎉",
+            "description": f"**{product_name}** is now available!",
+            "url": url,
+            "color": 65280,  # Green color
+            "fields": [
+                {
+                    "name": "Product",
+                    "value": product_name,
+                    "inline": False
+                },
+                {
+                    "name": "Link",
+                    "value": f"[Click here to buy now!]({url})",
+                    "inline": False
+                }
+            ],
+            "footer": {
+                "text": "Stock Alert Bot"
+            },
+            "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
+        }
+    else:
+        embed = {
+            "title": "❌ Product Out of Stock",
+            "description": f"**{product_name}** is currently unavailable.",
+            "url": url,
+            "color": 16711680,  # Red color
+            "fields": [
+                {
+                    "name": "Product",
+                    "value": product_name,
+                    "inline": False
+                },
+                {
+                    "name": "Status",
+                    "value": "Out of Stock",
+                    "inline": False
+                }
+            ],
+            "footer": {
+                "text": "Stock Alert Bot"
+            },
+            "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
+        }
+    
+    payload = {"embeds": [embed]}
     requests.post(WEBHOOK_URL, json=payload)
 
 def manual_check():
@@ -115,10 +161,11 @@ def automatic_monitor():
                 in_stock = get_stock_status(url)
                 
                 if in_stock is True and last_status[url] != True:
-                    send_discord_alert(f"🎉 **{product_name}** is IN STOCK! Go now: {url}")
+                    send_discord_alert(product_name, url, True)
                     print(f"✅ Sent IN STOCK alert for {product_name}!")
                 elif in_stock is False and last_status[url] != False:
-                    print(f"📦 {product_name}: Still out of stock.")
+                    send_discord_alert(product_name, url, False)
+                    print(f"📦 Sent OUT OF STOCK alert for {product_name}.")
                 elif in_stock is None:
                     print(f"❓ {product_name}: Couldn't determine stock status.")
                 
