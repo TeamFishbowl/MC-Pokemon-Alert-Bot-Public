@@ -12,6 +12,7 @@ try:
         WEBHOOK_URL = f.read().strip()
 except FileNotFoundError:
     print("Error: webhook.txt file not found!")
+    input("Press Enter to exit...")
     exit()
 
 # How often to check (in seconds)
@@ -26,16 +27,28 @@ def get_stock_status():
     response = requests.get(URL, headers=headers, timeout=10)
     soup = BeautifulSoup(response.text, "html.parser")
     
-    # Look for stock text
-    out_of_stock = soup.find(string=lambda text: text and "out of stock" in text.lower())
-    in_stock = soup.find(string=lambda text: "add to cart" in text.lower())
-    
-    if in_stock:
-        return True
-    elif out_of_stock:
+    # Look for "Email when stock available" button - indicates out of stock
+    email_button = soup.find('button', class_='woocommerce-email-subscription')
+    if email_button:
         return False
-    else:
-        return None  # unknown
+    
+    # Look for "Out of stock" text
+    out_of_stock_text = soup.find(string=lambda text: text and "out of stock" in text.lower())
+    if out_of_stock_text:
+        return False
+    
+    # Look for "Add to cart" or "Buy now" buttons - indicates in stock
+    add_to_cart = soup.find('button', class_='single_add_to_cart_button')
+    if add_to_cart and add_to_cart.get_text().strip().lower() in ['add to cart', 'buy now']:
+        return True
+    
+    # Check for "in stock" text
+    in_stock_text = soup.find(string=lambda text: text and "in stock" in text.lower())
+    if in_stock_text:
+        return True
+    
+    # If we can't determine, return None
+    return None
 
 def send_discord_alert(message):
     """Send a message to Discord via webhook."""
