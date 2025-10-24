@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import time
 import threading
 from datetime import datetime, timezone
+import sys
 
 # Read webhook URL from file
 try:
@@ -11,7 +12,7 @@ try:
 except FileNotFoundError:
     print("Error: webhook.txt file not found!")
     input("Press Enter to exit...")
-    exit()
+    sys.exit()
 
 # Read URLs from file
 try:
@@ -20,18 +21,20 @@ try:
     if not URLS:
         print("Error: urls.txt is empty!")
         input("Press Enter to exit...")
-        exit()
+        sys.exit()
 except FileNotFoundError:
     print("Error: urls.txt file not found!")
     input("Press Enter to exit...")
-    exit()
+    sys.exit()
 
 # How often to check (in seconds)
 CHECK_INTERVAL = 3600  # 1 hour
 DISCORD_RATE_LIMIT_DELAY = 0.5  # Delay between Discord messages to avoid rate limiting
 
-# Global variable to track last status for each URL
+# Global variables
 last_status = {}
+alerts_enabled = False
+send_oos_alerts = True
 
 def get_product_name(url):
     """Extract a readable product name from the URL."""
@@ -127,6 +130,13 @@ def get_stock_status(url):
 
 def send_discord_alert(product_name, url, in_stock, image_url):
     """Send a message to Discord via webhook with embed."""
+    global send_oos_alerts
+    
+    # Skip out of stock alerts if disabled
+    if not in_stock and not send_oos_alerts:
+        print(f"   ⏭️ Skipping out-of-stock alert (OOS alerts disabled)")
+        return None
+    
     print(f"📤 Sending Discord alert for {product_name}...")
     
     if in_stock:
@@ -192,6 +202,41 @@ def send_discord_alert(product_name, url, in_stock, image_url):
     
     return response
 
+def send_monitored_list():
+    """Send a list of all monitored products to Discord."""
+    print("\n📋 Sending monitored products list to Discord...")
+    
+    # Build the list of products
+    product_list = ""
+    for i, url in enumerate(URLS, 1):
+        product_name = get_product_name(url)
+        product_list += f"{i}. [{product_name}]({url})\n"
+    
+    embed = {
+        "title": "📋 Currently Monitoring",
+        "description": f"Tracking {len(URLS)} product(s) for stock changes:",
+        "color": 3447003,
+        "fields": [
+            {
+                "name": "Products",
+                "value": product_list if product_list else "No products being monitored",
+                "inline": False
+            }
+        ],
+        "footer": {
+            "text": "Rahmis Cooked Bot"
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    payload = {"embeds": [embed]}
+    response = requests.post(WEBHOOK_URL, json=payload)
+    
+    if response.status_code == 204:
+        print("✅ Monitored list sent to Discord!")
+    else:
+        print(f"❌ Failed to send list. Status: {response.status_code}")
+
 def test_webhook():
     """Test if the webhook is working."""
     print("\n🧪 Testing webhook...")
@@ -236,18 +281,8 @@ def manual_check():
             
             if in_stock is True:
                 print(f"[{i}/{len(URLS)}] ✅ {product_name}: IN STOCK")
-                response = send_discord_alert(product_name, url, True, image_url)
-                print(f"[{i}/{len(URLS)}] 📨 Discord response: {response.status_code}")
-                if i < len(URLS):
-                    print(f"⏳ Waiting {DISCORD_RATE_LIMIT_DELAY}s before next alert...")
-                    time.sleep(DISCORD_RATE_LIMIT_DELAY)
             elif in_stock is False:
                 print(f"[{i}/{len(URLS)}] ❌ {product_name}: OUT OF STOCK")
-                response = send_discord_alert(product_name, url, False, image_url)
-                print(f"[{i}/{len(URLS)}] 📨 Discord response: {response.status_code}")
-                if i < len(URLS):
-                    print(f"⏳ Waiting {DISCORD_RATE_LIMIT_DELAY}s before next alert...")
-                    time.sleep(DISCORD_RATE_LIMIT_DELAY)
             else:
                 print(f"[{i}/{len(URLS)}] ❓ {product_name}: UNKNOWN")
                 
@@ -258,63 +293,86 @@ def manual_check():
 
 def automatic_monitor():
     """Automatic monitoring loop that runs every hour."""
-    global last_status
-    print(f"🔍 Starting automatic monitoring for {len(URLS)} product(s) (checks every hour)...\n")
+    global last_status, alerts_enabled
+    print(f"🔍 Automatic monitoring initialized for {len(URLS)} product(s).")
+    print(f"⏸️ Alerts are PAUSED. Type 'start_alerts' to begin sending alerts.\n")
     
     for url in URLS:
         if url not in last_status:
             last_status[url] = None
     
     while True:
-        print(f"\n⏰ Starting automatic check at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        if alerts_enabled:
+            print(f"\n⏰ Starting automatic check at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            for i, url in enumerate(URLS, 1):
+                try:
+                    product_name = get_product_name(url)
+                    print(f"\n[{i}/{len(URLS)}] 🌐 Checking {product_name}...")
+                    
+                    in_stock, image_url = get_stock_status(url)
+                    
+                    print(f"[{i}/{len(URLS)}] ✓ Finished checking {product_name}")
+                    
+                    if in_stock is True and last_status[url] != True:
+                        send_discord_alert(product_name, url, True, image_url)
+                        print(f"[{i}/{len(URLS)}] ✅ Sent IN STOCK alert for {product_name}!")
+                        time.sleep(DISCORD_RATE_LIMIT_DELAY)
+                    elif in_stock is False and last_status[url] != False:
+                        response = send_discord_alert(product_name, url, False, image_url)
+                        if response:
+                            print(f"[{i}/{len(URLS)}] 📦 Sent OUT OF STOCK alert for {product_name}.")
+                        time.sleep(DISCORD_RATE_LIMIT_DELAY)
+                    elif in_stock is None:
+                        print(f"[{i}/{len(URLS)}] ❓ {product_name}: Couldn't determine stock status.")
+                    else:
+                        print(f"[{i}/{len(URLS)}] 🔄 {product_name}: No status change")
+                    
+                    last_status[url] = in_stock
+                    
+                except Exception as e:
+                    print(f"[{i}/{len(URLS)}] ❌ Error checking {url}: {e}")
+            
+            print(f"\n💤 Sleeping for {CHECK_INTERVAL}s until next check...")
         
-        for i, url in enumerate(URLS, 1):
-            try:
-                product_name = get_product_name(url)
-                print(f"\n[{i}/{len(URLS)}] 🌐 Checking {product_name}...")
-                
-                in_stock, image_url = get_stock_status(url)
-                
-                print(f"[{i}/{len(URLS)}] ✓ Finished checking {product_name}")
-                
-                if in_stock is True and last_status[url] != True:
-                    send_discord_alert(product_name, url, True, image_url)
-                    print(f"[{i}/{len(URLS)}] ✅ Sent IN STOCK alert for {product_name}!")
-                    time.sleep(DISCORD_RATE_LIMIT_DELAY)
-                elif in_stock is False and last_status[url] != False:
-                    send_discord_alert(product_name, url, False, image_url)
-                    print(f"[{i}/{len(URLS)}] 📦 Sent OUT OF STOCK alert for {product_name}.")
-                    time.sleep(DISCORD_RATE_LIMIT_DELAY)
-                elif in_stock is None:
-                    print(f"[{i}/{len(URLS)}] ❓ {product_name}: Couldn't determine stock status.")
-                else:
-                    print(f"[{i}/{len(URLS)}] 🔄 {product_name}: No status change")
-                
-                last_status[url] = in_stock
-                
-            except Exception as e:
-                print(f"[{i}/{len(URLS)}] ❌ Error checking {url}: {e}")
-        
-        print(f"\n💤 Sleeping for {CHECK_INTERVAL}s until next check...")
         time.sleep(CHECK_INTERVAL)
 
 def command_listener():
     """Listen for user commands."""
-    print("💬 Command listener active. Available commands:")
-    print("   - check_stock : Manually check stock now")
-    print("   - test_webhook : Test if Discord webhook is working")
-    print("   - status      : Show last known status for all products")
-    print("   - list        : Show all monitored URLs")
-    print("   - quit        : Exit program\n")
+    global alerts_enabled, send_oos_alerts
+    
+    print("💬 Command listener active. Type 'commands' to see all available commands.\n")
     
     while True:
         try:
             command = input().strip().lower()
             
-            if command == "check_stock":
+            if command == "commands":
+                print("\n📋 Available Commands:")
+                print("   • commands         - Show this list of all commands")
+                print("   • start_alerts     - Start sending Discord alerts")
+                print("   • check_stock      - Manually check stock for all products")
+                print("   • test_webhook     - Test if Discord webhook is working")
+                print("   • status           - Show last known status for all products")
+                print("   • list             - Show all monitored URLs")
+                print("   • send_alert_list  - Send list of monitored products to Discord")
+                print("   • stop_oos         - Stop sending out-of-stock alerts")
+                print("   • start_oos        - Resume sending out-of-stock alerts")
+                print("   • quit             - Exit program\n")
+            
+            elif command == "start_alerts":
+                if alerts_enabled:
+                    print("⚠️ Alerts are already enabled!")
+                else:
+                    alerts_enabled = True
+                    print("✅ Alerts enabled! Discord notifications will now be sent when stock changes.")
+            
+            elif command == "check_stock":
                 manual_check()
+            
             elif command == "test_webhook":
                 test_webhook()
+            
             elif command == "status":
                 print("\n📊 Current status for all products:")
                 for url in URLS:
@@ -326,17 +384,37 @@ def command_listener():
                         print(f"   ❌ {product_name}: OUT OF STOCK")
                     else:
                         print(f"   ❓ {product_name}: UNKNOWN")
+            
             elif command == "list":
                 print(f"\n📋 Monitoring {len(URLS)} product(s):")
                 for i, url in enumerate(URLS, 1):
                     product_name = get_product_name(url)
                     print(f"   {i}. {product_name}")
                     print(f"      {url}")
+            
+            elif command == "send_alert_list":
+                send_monitored_list()
+            
+            elif command == "stop_oos":
+                if not send_oos_alerts:
+                    print("⚠️ Out-of-stock alerts are already disabled!")
+                else:
+                    send_oos_alerts = False
+                    print("🔕 Out-of-stock alerts disabled. Only in-stock alerts will be sent.")
+            
+            elif command == "start_oos":
+                if send_oos_alerts:
+                    print("⚠️ Out-of-stock alerts are already enabled!")
+                else:
+                    send_oos_alerts = True
+                    print("🔔 Out-of-stock alerts enabled. Both in-stock and out-of-stock alerts will be sent.")
+            
             elif command == "quit" or command == "exit":
                 print("👋 Exiting program...")
-                exit()
+                sys.exit()
+            
             else:
-                print(f"❌ Unknown command: '{command}'")
+                print(f"❌ Unknown command: '{command}'. Type 'commands' for a list of available commands.")
                 
         except Exception as e:
             print(f"❌ Error: {e}")
