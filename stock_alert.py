@@ -237,6 +237,41 @@ def send_monitored_list():
     else:
         print(f"❌ Failed to send list. Status: {response.status_code}")
 
+def initial_check_and_alert():
+    """Perform initial check and send alerts for all in-stock items."""
+    global last_status
+    print("\n🔍 Running initial check and sending alerts for in-stock items...")
+    
+    for i, url in enumerate(URLS, 1):
+        try:
+            product_name = get_product_name(url)
+            print(f"\n[{i}/{len(URLS)}] 🌐 Checking {product_name}...")
+            
+            in_stock, image_url = get_stock_status(url)
+            
+            print(f"[{i}/{len(URLS)}] ✓ Finished checking {product_name}")
+            
+            if in_stock is True:
+                print(f"[{i}/{len(URLS)}] ✅ {product_name}: IN STOCK")
+                send_discord_alert(product_name, url, True, image_url)
+                print(f"[{i}/{len(URLS)}] 📨 Sent IN STOCK alert!")
+                time.sleep(DISCORD_RATE_LIMIT_DELAY)
+            elif in_stock is False:
+                print(f"[{i}/{len(URLS)}] ❌ {product_name}: OUT OF STOCK")
+                if send_oos_alerts:
+                    send_discord_alert(product_name, url, False, image_url)
+                    print(f"[{i}/{len(URLS)}] 📨 Sent OUT OF STOCK alert!")
+                    time.sleep(DISCORD_RATE_LIMIT_DELAY)
+            else:
+                print(f"[{i}/{len(URLS)}] ❓ {product_name}: UNKNOWN")
+            
+            last_status[url] = in_stock
+            
+        except Exception as e:
+            print(f"[{i}/{len(URLS)}] ❌ Error checking {url}: {e}")
+    
+    print("\n✅ Initial check complete! Automatic monitoring will now track changes.")
+
 def test_webhook():
     """Test if the webhook is working."""
     print("\n🧪 Testing webhook...")
@@ -350,7 +385,7 @@ def command_listener():
             if command == "commands":
                 print("\n📋 Available Commands:")
                 print("   • commands         - Show this list of all commands")
-                print("   • start_alerts     - Start sending Discord alerts")
+                print("   • start_alerts     - Start sending Discord alerts (checks all items first)")
                 print("   • check_stock      - Manually check stock for all products")
                 print("   • test_webhook     - Test if Discord webhook is working")
                 print("   • status           - Show last known status for all products")
@@ -365,7 +400,8 @@ def command_listener():
                     print("⚠️ Alerts are already enabled!")
                 else:
                     alerts_enabled = True
-                    print("✅ Alerts enabled! Discord notifications will now be sent when stock changes.")
+                    print("✅ Alerts enabled! Running initial check...")
+                    initial_check_and_alert()
             
             elif command == "check_stock":
                 manual_check()
