@@ -1,9 +1,0 @@
-version: 1.0.{build}
-image: Visual Studio 2022
-build_script:
-  - pip install requests beautifulsoup4
-  - pip install pyinstaller
-  - pyinstaller --onefile stock_alert.py
-artifacts:
-  - path: dist\stock_alert.exe
-    name: StockAlert
