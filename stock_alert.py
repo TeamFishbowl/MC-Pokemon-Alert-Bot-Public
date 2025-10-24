@@ -26,7 +26,7 @@ except json.JSONDecodeError as e:
 
 # How often to check (in seconds)
 CHECK_INTERVAL = 3600  # 1 hour
-DISCORD_RATE_LIMIT_DELAY = 0.5  # Delay between Discord messages to avoid rate limiting
+DISCORD_RATE_LIMIT_DELAY = 1.0  # Delay between Discord messages to avoid rate limiting
 
 # Global variables
 last_status = {}
@@ -84,48 +84,90 @@ def get_product_image(soup):
     
     return None
 
-def get_stock_status(url):
+def get_product_price(soup):
+    """Extract the product price from the page."""
+    print("   💰 Searching for product price...")
+    
+    try:
+        # Look for price-wrapper div
+        price_wrapper = soup.find('div', class_='price-wrapper')
+        if price_wrapper:
+            # Try to find the price span
+            price_span = price_wrapper.find('span', class_='woocommerce-Price-amount')
+            if price_span:
+                price_text = price_span.get_text(strip=True)
+                print(f"   ✓ Found price: {price_text}")
+                return price_text
+            
+            # Fallback: get all text from price-wrapper
+            price_text = price_wrapper.get_text(strip=True)
+            if price_text:
+                print(f"   ✓ Found price (fallback): {price_text}")
+                return price_text
+        
+        print("   ⚠️ No price found")
+    except Exception as e:
+        print(f"   ❌ Error getting product price: {e}")
+    
+    return None
+
+def get_stock_status(url, retry=False):
     """Check if the product is in stock by scraping the page."""
     headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers, timeout=10)
-    soup = BeautifulSoup(response.text, "html.parser")
     
-    # Find the main product summary section ONLY
-    product_summary = soup.find('div', class_='product-summary')
-    
-    if not product_summary:
-        print(f"⚠️ Warning: Could not find product summary section for {url}")
-        return None, None
-    
-    # Get product image
-    image_url = get_product_image(soup)
-    
-    # Now search ONLY within the product summary section
-    
-    # Look for "Email when stock available" button - indicates out of stock
-    email_button = product_summary.find('button', class_='woocommerce-email-subscription')
-    if email_button:
-        return False, image_url
-    
-    # Look for "Out of stock" text
-    out_of_stock_text = product_summary.find(string=lambda text: text and "out of stock" in text.lower())
-    if out_of_stock_text:
-        return False, image_url
-    
-    # Look for "Add to cart" or "Buy now" buttons - indicates in stock
-    add_to_cart = product_summary.find('button', class_='single_add_to_cart_button')
-    if add_to_cart and add_to_cart.get_text().strip().lower() in ['add to cart', 'buy now']:
-        return True, image_url
-    
-    # Check for "in stock" text
-    in_stock_text = product_summary.find(string=lambda text: text and "in stock" in text.lower())
-    if in_stock_text:
-        return True, image_url
-    
-    # If we can't determine, return None
-    return None, image_url
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # Find the main product summary section ONLY
+        product_summary = soup.find('div', class_='product-summary')
+        
+        if not product_summary:
+            print(f"⚠️ Warning: Could not find product summary section for {url}")
+            return None, None, None
+        
+        # Get product image and price
+        image_url = get_product_image(soup)
+        price = get_product_price(soup)
+        
+        # Now search ONLY within the product summary section
+        
+        # Look for "Email when stock available" button - indicates out of stock
+        email_button = product_summary.find('button', class_='woocommerce-email-subscription')
+        if email_button:
+            return False, image_url, price
+        
+        # Look for "Out of stock" text
+        out_of_stock_text = product_summary.find(string=lambda text: text and "out of stock" in text.lower())
+        if out_of_stock_text:
+            return False, image_url, price
+        
+        # Look for "Add to cart" or "Buy now" buttons - indicates in stock
+        add_to_cart = product_summary.find('button', class_='single_add_to_cart_button')
+        if add_to_cart and add_to_cart.get_text().strip().lower() in ['add to cart', 'buy now']:
+            return True, image_url, price
+        
+        # Check for "in stock" text
+        in_stock_text = product_summary.find(string=lambda text: text and "in stock" in text.lower())
+        if in_stock_text:
+            return True, image_url, price
+        
+        # If we can't determine, return None
+        return None, image_url, price
+        
+    except requests.exceptions.Timeout:
+        if not retry:
+            print("   ⏱️ Request timed out. Waiting 10 seconds and retrying...")
+            time.sleep(10)
+            return get_stock_status(url, retry=True)
+        else:
+            print("   ❌ Request timed out again after retry.")
+            return None, None, None
+    except Exception as e:
+        print(f"   ❌ Unexpected error: {e}")
+        return None, None, None
 
-def send_discord_alert(product_name, url, in_stock, image_url, webhook_url):
+def send_discord_alert(product_name, url, in_stock, image_url, price, webhook_url):
     """Send a message to Discord via webhook with embed."""
     global send_oos_alerts
     
@@ -137,56 +179,78 @@ def send_discord_alert(product_name, url, in_stock, image_url, webhook_url):
     print(f"📤 Sending Discord alert for {product_name}...")
     
     if in_stock:
+        fields = [
+            {
+                "name": "Product",
+                "value": product_name,
+                "inline": False
+            }
+        ]
+        
+        # Add price if available
+        if price:
+            fields.append({
+                "name": "Price",
+                "value": price,
+                "inline": True
+            })
+        
+        fields.append({
+            "name": "Link",
+            "value": f"[Click here to buy now!]({url})",
+            "inline": False
+        })
+        
         embed = {
             "title": "🎉 PRODUCT IN STOCK! 🎉",
             "description": f"**{product_name}** is now available!",
             "url": url,
             "color": 65280,
-            "fields": [
-                {
-                    "name": "Product",
-                    "value": product_name,
-                    "inline": False
-                },
-                {
-                    "name": "Link",
-                    "value": f"[Click here to buy now!]({url})",
-                    "inline": False
-                }
-            ],
+            "fields": fields,
             "footer": {
                 "text": "Rahmis Cooked Bot"
             },
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     else:
+        fields = [
+            {
+                "name": "Product",
+                "value": product_name,
+                "inline": False
+            }
+        ]
+        
+        # Add price if available
+        if price:
+            fields.append({
+                "name": "Price",
+                "value": price,
+                "inline": True
+            })
+        
+        fields.append({
+            "name": "Status",
+            "value": "Out of Stock",
+            "inline": False
+        })
+        
         embed = {
             "title": "❌ Product Out of Stock",
             "description": f"**{product_name}** is currently unavailable.",
             "url": url,
             "color": 16711680,
-            "fields": [
-                {
-                    "name": "Product",
-                    "value": product_name,
-                    "inline": False
-                },
-                {
-                    "name": "Status",
-                    "value": "Out of Stock",
-                    "inline": False
-                }
-            ],
+            "fields": fields,
             "footer": {
                 "text": "Rahmis Cooked Bot"
             },
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     
-    # Add image if found
+    # Add image as thumbnail if found
     if image_url:
-        embed["image"] = {"url": image_url}
-        print(f"   🖼️ Adding image to embed: {image_url}")
+        embed["thumbnail"] = {"url": image_url}
+        print(f"   🖼️ Adding thumbnail to embed: {image_url}")
     else:
         print(f"   ⚠️ No image to add to embed")
     
@@ -251,19 +315,19 @@ def initial_check_and_alert():
                 product_name = get_product_name(url)
                 print(f"\n[{i}/{len(urls)}] 🌐 Checking {product_name}...")
                 
-                in_stock, image_url = get_stock_status(url)
+                in_stock, image_url, price = get_stock_status(url)
                 
                 print(f"[{i}/{len(urls)}] ✓ Finished checking {product_name}")
                 
                 if in_stock is True:
                     print(f"[{i}/{len(urls)}] ✅ {product_name}: IN STOCK")
-                    send_discord_alert(product_name, url, True, image_url, webhook_url)
+                    send_discord_alert(product_name, url, True, image_url, price, webhook_url)
                     print(f"[{i}/{len(urls)}] 📨 Sent IN STOCK alert!")
                     time.sleep(DISCORD_RATE_LIMIT_DELAY)
                 elif in_stock is False:
                     print(f"[{i}/{len(urls)}] ❌ {product_name}: OUT OF STOCK")
                     if send_oos_alerts:
-                        send_discord_alert(product_name, url, False, image_url, webhook_url)
+                        send_discord_alert(product_name, url, False, image_url, price, webhook_url)
                         print(f"[{i}/{len(urls)}] 📨 Sent OUT OF STOCK alert!")
                         time.sleep(DISCORD_RATE_LIMIT_DELAY)
                 else:
@@ -313,7 +377,7 @@ def test_webhook():
         except Exception as e:
             print(f"❌ Error sending test message for '{group_name}': {e}")
         
-        time.sleep(0.5)
+        time.sleep(DISCORD_RATE_LIMIT_DELAY)
 
 def manual_check():
     """Perform a manual stock check for all URLs across all groups."""
@@ -330,9 +394,12 @@ def manual_check():
                 product_name = get_product_name(url)
                 print(f"\n[{i}/{len(urls)}] 🌐 Scraping {product_name}...")
                 
-                in_stock, image_url = get_stock_status(url)
+                in_stock, image_url, price = get_stock_status(url)
                 
                 print(f"[{i}/{len(urls)}] ✓ Finished scraping {product_name}")
+                
+                if price:
+                    print(f"[{i}/{len(urls)}] 💰 Price: {price}")
                 
                 if in_stock is True:
                     print(f"[{i}/{len(urls)}] ✅ {product_name}: IN STOCK")
@@ -376,16 +443,16 @@ def automatic_monitor():
                         product_name = get_product_name(url)
                         print(f"\n[{i}/{len(urls)}] 🌐 Checking {product_name}...")
                         
-                        in_stock, image_url = get_stock_status(url)
+                        in_stock, image_url, price = get_stock_status(url)
                         
                         print(f"[{i}/{len(urls)}] ✓ Finished checking {product_name}")
                         
                         if in_stock is True and last_status[url] != True:
-                            send_discord_alert(product_name, url, True, image_url, webhook_url)
+                            send_discord_alert(product_name, url, True, image_url, price, webhook_url)
                             print(f"[{i}/{len(urls)}] ✅ Sent IN STOCK alert for {product_name}!")
                             time.sleep(DISCORD_RATE_LIMIT_DELAY)
                         elif in_stock is False and last_status[url] != False:
-                            response = send_discord_alert(product_name, url, False, image_url, webhook_url)
+                            response = send_discord_alert(product_name, url, False, image_url, price, webhook_url)
                             if response:
                                 print(f"[{i}/{len(urls)}] 📦 Sent OUT OF STOCK alert for {product_name}.")
                             time.sleep(DISCORD_RATE_LIMIT_DELAY)
